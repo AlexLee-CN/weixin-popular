@@ -142,6 +142,79 @@ public class MediaAPI extends BaseAPI{
 		}
 		return null;
 	}
+	
+		/**
+	 * 下载多媒体并保存
+	 * 
+	 * @param access_token
+	 * @param media_id
+	 * @param folder
+	 * @return
+	 */
+	public static String mediaGetAndSave(String access_token, String media_id,
+			File folder) {
+		String filename = null;
+		HttpUriRequest httpUriRequest = RequestBuilder.post()
+				.setUri(BASE_URI + "/cgi-bin/media/get")
+				.addParameter("access_token", access_token)
+				.addParameter("media_id", media_id).build();
+		HttpResponse resp = LocalHttpClient.execute(httpUriRequest);
+		try {
+			byte[] bytes = EntityUtils.toByteArray(resp.getEntity());
+			// 如果Content-Type为text/plain则尝试解析错误码
+			String contentType = null;
+			Header[] hvs = resp.getHeaders("Content-Type");
+			if (hvs != null && hvs.length > 0) {
+				contentType = hvs[0].getValue();
+			}
+			if (contentType != null
+					&& "text/plain".equalsIgnoreCase(contentType)) {
+				String respText = new String(bytes, "UTF-8");
+				if (respText != null && respText.contains("errcode")) {
+					throw new IllegalStateException(String.format("文件下载失败 %s", respText));
+				}
+			}
+
+			// 首先尝试通过Content-Disposition头获取文件名
+			hvs = resp.getHeaders("Content-Disposition");
+			if (hvs == null || hvs.length < 1) {
+				hvs = resp.getHeaders("Content-disposition");// 兼容其它写法
+			}
+			if (hvs == null || hvs.length < 1) {
+				hvs = resp.getHeaders("content-disposition");// 兼容其它写法
+			}
+			if (hvs != null && hvs.length > 0) {
+				String fileDesc = hvs[0].getValue();
+				Matcher m = Pattern.compile("(?<=filename=\").*?(?=\")")
+						.matcher(fileDesc);
+				while (m.find()) {
+					filename = m.group();
+				}
+			}
+			// 尝试通过Content-Type的MIME方式创建文件扩展名
+			if (filename == null || filename.isEmpty()) {
+				filename = media_id + "-" + contentType.replace('/', '.');
+			}
+
+			FileOutputStream fouts = null;
+			try {
+				if (!folder.getAbsoluteFile().exists()) {
+					folder.mkdirs();// 创建目录
+				}
+				fouts = new FileOutputStream(new File(folder, filename));
+				fouts.write(bytes);
+				fouts.flush();
+			} finally {
+				if (fouts != null) {
+					fouts.close();
+				}
+			}
+
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return filename;
+	}
 
 	/**
 	 * 上传图文消息内的图片获取URL
